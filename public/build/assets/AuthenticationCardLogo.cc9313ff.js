@@ -1,0 +1,1 @@
+import{o as t,e as a,b as s,w as o,a as e,h as n,L as r,F as c}from"./app.568238bc.js";const _=["src"],i=e("span",null,"Radenviro",-1),d={__name:"AuthenticationCardLogo",setup(l){return(h,p)=>(t(),a(c,null,[s(n(r),{href:"/"},{default:o(()=>[e("img",{src:"/images/logo.png",style:{width:"230px",height:"57px"}},null,8,_)]),_:1}),i],64))}};export{d as _};
