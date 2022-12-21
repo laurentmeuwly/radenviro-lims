@@ -36,6 +36,12 @@ return [
             'throw' => false,
         ],
 
+        'lims' => [
+            'driver' => 'local',
+            'root' => env('LIMS_DATA_SRC'),
+            'throw' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
