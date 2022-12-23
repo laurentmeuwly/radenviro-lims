@@ -191,4 +191,15 @@ class DirectoryParser
         return true;
 
     }
+
+    public function purgeDir()
+    {
+        collect(Storage::disk('lims')->listContents('processed', true))
+            ->each(function($file) {
+                if($file['type']=='file' &&
+                    $file['lastModified'] < now()->subDays(2)->getTimestamp()) {
+                        Storage::disk('lims')->delete($file['path']);
+                    }
+            });
+    }
 }
