@@ -35,18 +35,23 @@ class DirectoryParser
             $objJsonDocument = json_encode($xml);
             $arrOutput = json_decode($objJsonDocument, true);
 
-            if(isset($arrOutput['sample'][0])){
-                foreach($arrOutput['sample'] as $xmlSample) {
+            try {
+                if(isset($arrOutput['sample'][0])){
+                    foreach($arrOutput['sample'] as $xmlSample) {
+                        $res = $this->manageSample($xmlSample);
+                    }
+                } else {
+                    $xmlSample = $arrOutput['sample'];
                     $res = $this->manageSample($xmlSample);
                 }
-            } else {
-                $xmlSample = $arrOutput['sample'];
-                $res = $this->manageSample($xmlSample);
-            }
 
-            // when all data processed, move the file to "processed" folder
-            if($res) {
-                Storage::disk('lims')->move($file, 'processed/'. $file);
+                // when all data processed, move the file to "processed" folder
+                if($res) {
+                    Storage::disk('lims')->move($file, 'processed/'. $file);
+                }
+            } catch(\Exception $e) {
+                report('XML file error: file=' . $file . '; error=' . $e->getMessage());
+                Storage::disk('lims')->move($file, 'error/'. $file);
             }
         }
     }
@@ -55,9 +60,17 @@ class DirectoryParser
     public function manageSample($xmlSample)
     {
         // the sample number is the key between xml source file and database destination table
+        if(!isset($xmlSample['number']) || !isset($xmlSample['@attributes']['mtime'])) {
+            throw new \Exception('Not a valid LIMS sample! Missing sample number or mtime');
+        }
         $sampleNumber = $xmlSample['number'];
 
         // mandatory fields
+        if( !isset($xmlSample['laboratory'])
+            || !isset($xmlSample['data']['bag-code'])
+            || !isset($xmlSample['data']['type']) ) {
+            throw new \Exception('Mandatory fields missing! Check laboratory, bag-code and type');
+        }
         $laboratory = Laboratory::where('code', '=', $xmlSample['laboratory'])->first();
         $bagCode = BagCode::where('version', '=', '2003')->where('code', '=', $xmlSample['data']['bag-code'])->first();
         $type = Type::where('code', '=', $xmlSample['data']['type'])->first();
@@ -91,32 +104,58 @@ class DirectoryParser
                 $sample->network_id = $network->id;
             }
 
-            $sample->description = $xmlSample['data']['description'];
-            $sample->inSitu = $xmlSample['data']['in-situ']==='false' ? 0 : 1;
-            $sample->samCoordinateSystem = $xmlSample['data']['sampling']['location']['coordinates']['@attributes']['system'];
-            $sample->samCoordinateUnit = $xmlSample['data']['sampling']['location']['coordinates']['@attributes']['unit'];
-            $sample->samX = $xmlSample['data']['sampling']['location']['coordinates']['x'];
-            $sample->samY = $xmlSample['data']['sampling']['location']['coordinates']['y'];
-            $sample->oriSame = $xmlSample['data']['origin']['@attributes']==='true' ? 1 : 0;
-            $sample->samDate = $xmlSample['data']['sampling']['date'];
+            if(isset($xmlSample['data']['description'])) {
+                $sample->description = $xmlSample['data']['description'];
+            }
 
-            if(isset($xmlSample['data']['sampling']['location']['postcode'])) {
-                $sample->samZip = $xmlSample['data']['sampling']['location']['postcode'];
+            if(isset($xmlSample['data']['in-situ'])) {
+                $sample->inSitu = $xmlSample['data']['in-situ']==='false' ? 0 : 1;
             }
-            if(isset($xmlSample['data']['sampling']['location']['town'])) {
-                $sample->samLocality = $xmlSample['data']['sampling']['location']['town'];
+
+            if(isset($xmlSample['data']['sampling'])) {
+
+                if(isset($xmlSample['data']['sampling']['location'])) {
+
+                    if(isset($xmlSample['data']['sampling']['location']['coordinates'])) {
+                        $sample->samCoordinateSystem = $xmlSample['data']['sampling']['location']['coordinates']['@attributes']['system'];
+                        $sample->samCoordinateUnit = $xmlSample['data']['sampling']['location']['coordinates']['@attributes']['unit'];
+                        $sample->samX = $xmlSample['data']['sampling']['location']['coordinates']['x'];
+                        $sample->samY = $xmlSample['data']['sampling']['location']['coordinates']['y'];
+                    }
+
+                    if(isset($xmlSample['data']['sampling']['location']['postcode'])) {
+                        $sample->samZip = $xmlSample['data']['sampling']['location']['postcode'];
+                    }
+
+                    if(isset($xmlSample['data']['sampling']['location']['town'])) {
+                        $sample->samLocality = $xmlSample['data']['sampling']['location']['town'];
+                    }
+
+                    if(isset($xmlSample['data']['sampling']['location']['canton'])) {
+                        $canton = Canton::where('code', '=', $xmlSample['data']['sampling']['location']['canton'])->first();
+                        $sample->samcanton_id = $canton->id;
+                    }
+                    if(isset($xmlSample['data']['sampling']['location']['country'])) {
+                        $country = Country::where('code', '=', $xmlSample['data']['sampling']['location']['country'])->first();
+                        $sample->samcountry_id = $country->id;
+                    }
+
+                }
+
+                if(isset($xmlSample['data']['sampling']['date'])) {
+                    $sample->samDate = $xmlSample['data']['sampling']['date'];
+                }
+
+                if(isset($xmlSample['data']['sampling']['end-date'])) {
+                    $sample->samEndDate = $xmlSample['data']['sampling']['end-date'];
+                }
+
             }
-            if(isset($xmlSample['data']['sampling']['location']['canton'])) {
-                $canton = Canton::where('code', '=', $xmlSample['data']['sampling']['location']['canton'])->first();
-                $sample->samcanton_id = $canton->id;
+
+            if(isset($xmlSample['data']['origin'])) {
+                $sample->oriSame = $xmlSample['data']['origin']['@attributes']==='true' ? 1 : 0;
             }
-            if(isset($xmlSample['data']['sampling']['location']['country'])) {
-                $country = Country::where('code', '=', $xmlSample['data']['sampling']['location']['country'])->first();
-                $sample->samcountry_id = $country->id;
-            }
-            if(isset($xmlSample['data']['sampling']['end-date'])) {
-                $sample->samEndDate = $xmlSample['data']['sampling']['end-date'];
-            }
+
             if(isset($xmlSample['data']['comment'])) {
                 $sample->comment = $xmlSample['data']['comment'];
             }
@@ -141,21 +180,45 @@ class DirectoryParser
 
     public function manageMeasurement($xmlMeasurement, $sample)
     {
+        // measurement without result does not serve
+        if(!isset($xmlMeasurement['results'])) {
+            throw new \Exception('Measurement without results!');
+        }
         $xmlResults = $xmlMeasurement['results'];
-        $laboratory = Laboratory::where('code', '=', $xmlMeasurement['laboratory'])->first();
-        $method = Method::where('code', '=', $xmlMeasurement['method'])->first();
-        $unit = ResultUnit::where('code', '=', $xmlResults['@attributes']['unit'])->first();
-        $fresh = $xmlResults['@attributes']['fresh']==='true' ? 1 : 0;
 
         $measurement = new Measurement();
+
         $measurement->sample_id = $sample->id;
-        $measurement->laboratory_id = $laboratory->id;
-        $measurement->method_id = $method->id;
-        $measurement->result_unit_id = $unit->id;
-        $measurement->referenceDate = $xmlMeasurement['ref-date'];
-        $measurement->number = $xmlMeasurement['number'];
-        $measurement->resultsFresh = $fresh;
+
+        if(isset($xmlMeasurement['laboratory'])){
+            $laboratory = Laboratory::where('code', '=', $xmlMeasurement['laboratory'])->first();
+            $measurement->laboratory_id = $laboratory->id;
+        }
+        if(isset($xmlMeasurement['method'])){
+            $method = Method::where('code', '=', $xmlMeasurement['method'])->first();
+            $measurement->method_id = $method->id;
+        }
+
+        if(isset($xmlResults['@attributes'])){
+            if(isset($xmlResults['@attributes']['unit'])){
+                $unit = ResultUnit::where('code', '=', $xmlResults['@attributes']['unit'])->first();
+                $measurement->result_unit_id = $unit->id;
+            }
+            if(isset($xmlResults['@attributes']['fresh'])){
+                $fresh = $xmlResults['@attributes']['fresh']==='true' ? 1 : 0;
+                $measurement->resultsFresh = $fresh;
+            }
+        }
+
+        if(isset($xmlMeasurement['ref-date'])){
+            $measurement->referenceDate = $xmlMeasurement['ref-date'];
+        }
+        if(isset($xmlMeasurement['number'])){
+            $measurement->number = $xmlMeasurement['number'];
+        }
+
         $measurement->save();
+
 
         if(isset($xmlResults['result'][0])){
             foreach($xmlResults['result'] as $xmlResult) {
@@ -176,20 +239,17 @@ class DirectoryParser
         $result = new Result();
         $result->measurement_id = $measurement->id;
         $result->nuclide_id = $nuclide->id;
-        $result->value = $xmlResult['value'];
+
+        if(isset($xmlResult['value'])) {
+            $result->value = $xmlResult['value'];
+        }
         $result->limited = isset($xmlResult['@attributes']['limit']) ? 1 : 0;
         if(isset($xmlResult['error'])) {
             $result->error = $xmlResult['error'];
         }
-        try {
-            $result->save();
-        } catch (\Throwable $e) {
-            report($e);
-            return false;
-        }
 
+        $result->save();
         return true;
-
     }
 
     public function purgeDir()
