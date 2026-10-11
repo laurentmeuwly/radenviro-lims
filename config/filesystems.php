@@ -42,6 +42,12 @@ return [
             'throw' => false,
         ],
 
+        'nadam' => [
+            'driver' => 'local',
+            'root' => env('NADAM_DATA_SRC'),
+            'throw' => true,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

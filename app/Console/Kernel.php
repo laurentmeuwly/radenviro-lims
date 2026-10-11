@@ -24,6 +24,17 @@ class Kernel extends ConsoleKernel
             ->dailyAt('01:00')
             ->withoutOverlapping()
             ->runInBackground();
+
+        // NADAM (GeoJSON) — workflow indépendant du LIMS
+        $schedule->command('nadam:parse')
+            ->everyTwoMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        $schedule->command('nadam:purge')
+            ->dailyAt('01:10')
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     /**
