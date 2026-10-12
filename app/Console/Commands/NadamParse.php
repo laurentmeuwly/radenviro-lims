@@ -43,6 +43,9 @@ class NadamParse extends Command
             foreach ($r['linked'] as $link) {
                 $this->info('Rattachée : '.$link);
             }
+            foreach ($r['geo_updates'] as $update) {
+                $this->info(($dryRun ? 'Géographie à mettre à jour, ' : 'Géographie mise à jour, ').$update);
+            }
             if ($this->getOutput()->isVerbose() || $dryRun) {
                 foreach ($r['warnings'] as $warning) {
                     $this->warn($warning);

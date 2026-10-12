@@ -35,10 +35,6 @@ return [
         'Stündlich' => 'hourly',
     ],
 
-    // écart toléré (en degrés) entre les coordonnées reçues et celles de la station
-    // avant d'émettre un avertissement (0.0005° ≈ 50 m) — les coordonnées ne sont jamais écrasées
-    'coordinate_tolerance' => 0.0005,
-
     // taille des lots d'upsert
     'chunk_size' => 500,
 ];

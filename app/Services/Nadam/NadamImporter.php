@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
  *  - erreur technique (base indisponible...) → fichier laissé en place, retenté au passage suivant
  *  - sinon chaque feature est validée ; les features invalides ou de stations inconnues
  *    sont ignorées et journalisées, les autres sont écrites par upsert dans une transaction
+ *  - latitude/longitude/altitude des stations alignées sur le fichier (le fichier fait foi)
  *  - fichier traité → processed/
  */
 class NadamImporter
@@ -88,6 +89,7 @@ class NadamImporter
             'rejected' => 0,
             'unknown_station' => 0,
             'linked' => [],
+            'geo_updates' => [],
             'warnings' => [],
             'error' => null,
         ];
@@ -136,6 +138,7 @@ class NadamImporter
 
                 $report['written'] = \count($rows);
                 $report['linked'] = $resolver->linked();
+                $report['geo_updates'] = $resolver->geoUpdates();
                 $report['warnings'] = array_merge($report['warnings'], $resolver->warnings());
 
                 if ($dryRun) {
@@ -219,6 +222,9 @@ class NadamImporter
 
         foreach ($report['linked'] as $link) {
             $logger->notice('station rattachée par code : '.$link);
+        }
+        foreach ($report['geo_updates'] as $update) {
+            $logger->notice('géographie mise à jour, '.$update);
         }
         foreach ($report['warnings'] as $warning) {
             $logger->warning($warning);

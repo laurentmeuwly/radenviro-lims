@@ -14,6 +14,10 @@ use App\Models\AutomaticNetworkStation;
  *
  * Une station inconnue n'est jamais créée automatiquement : la création reste un acte
  * d'administration (groupe « nadam » dans l'admin Radenviro).
+ *
+ * Données géographiques : le fichier NADAM fait foi. Latitude, longitude et altitude
+ * reçues écrasent celles de la station (une fois par station et par fichier), sauf valeur
+ * absente ou invalide dans le fichier, auquel cas la valeur existante est conservée.
  */
 class NadamStationResolver
 {
@@ -35,6 +39,15 @@ class NadamStationResolver
     /** @var string[] odl_station_id rattachés pour la première fois */
     private $linked = [];
 
+    /** @var array<int, true> stations dont la géographie a déjà été synchronisée pour ce fichier */
+    private $geoSynced = [];
+
+    /** @var string[] mises à jour géographiques effectuées (ou prévues en dry-run) */
+    private $geoUpdates = [];
+
+    /** écart sous lequel deux coordonnées sont considérées identiques (évite des écritures inutiles) */
+    private const COORDINATE_EPSILON = 1e-9;
+
     public function __construct(int $networkId, bool $dryRun = false)
     {
         $this->networkId = $networkId;
@@ -46,7 +59,7 @@ class NadamStationResolver
     {
         $stations = AutomaticNetworkStation::query()
             ->where('automatic_network_id', $this->networkId)
-            ->get(['id', 'code', 'external_id', 'latitude', 'longitude']);
+            ->get(['id', 'code', 'external_id', 'latitude', 'longitude', 'altitude']);
 
         foreach ($stations as $station) {
             if (null !== $station->external_id) {
@@ -96,27 +109,51 @@ class NadamStationResolver
             return null;
         }
 
-        $this->checkCoordinates($station, $reading);
+        $this->syncGeography($station, $reading);
 
         return (int) $station->id;
     }
 
-    private function checkCoordinates($station, NadamReading $reading): void
+    private function syncGeography($station, NadamReading $reading): void
     {
-        if (null === $reading->latitude || null === $reading->longitude) {
+        if (isset($this->geoSynced[$station->id])) {
+            return;
+        }
+        $this->geoSynced[$station->id] = true;
+
+        $changes = [];
+        $labels = [];
+
+        foreach (['latitude', 'longitude'] as $field) {
+            $new = $reading->$field;
+            if (null !== $new && (null === $station->$field || abs((float) $station->$field - (float) $new) > self::COORDINATE_EPSILON)) {
+                $changes[$field] = $new;
+                $labels[] = sprintf('%s %s → %s', $field, $this->display($station->$field), $new);
+            }
+        }
+
+        if (null !== $reading->altitude && (null === $station->altitude || (int) $station->altitude !== $reading->altitude)) {
+            $changes['altitude'] = $reading->altitude;
+            $labels[] = sprintf('altitude %s → %d', $this->display($station->altitude), $reading->altitude);
+        }
+
+        if ([] === $changes) {
             return;
         }
 
-        $tolerance = (float) config('nadam.coordinate_tolerance');
-        $dLat = abs((float) $station->latitude - $reading->latitude);
-        $dLon = abs((float) $station->longitude - $reading->longitude);
-
-        if ($dLat > $tolerance || $dLon > $tolerance) {
-            $this->warn('coord-'.$reading->stationExternalId, sprintf(
-                'station %s : coordonnées reçues (%s, %s) ≠ Radenviro (%s, %s)',
-                $reading->stationCode, $reading->latitude, $reading->longitude, $station->latitude, $station->longitude
-            ));
+        if (!$this->dryRun) {
+            AutomaticNetworkStation::query()->whereKey($station->id)->update($changes);
         }
+        foreach ($changes as $field => $value) {
+            $station->$field = $value;
+        }
+
+        $this->geoUpdates[] = sprintf('station %s : %s', $reading->stationCode, implode(', ', $labels));
+    }
+
+    private function display($value): string
+    {
+        return null === $value ? '—' : rtrim(rtrim((string) $value, '0'), '.');
     }
 
     private function warn($key, string $message): void
@@ -134,5 +171,11 @@ class NadamStationResolver
     public function linked(): array
     {
         return $this->linked;
+    }
+
+    /** @return string[] */
+    public function geoUpdates(): array
+    {
+        return $this->geoUpdates;
     }
 }

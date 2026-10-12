@@ -98,11 +98,52 @@ class NadamFeatureParser
             $reading->precipitation = $precipitation;
         }
 
-        // --- coordonnées (contrôle uniquement)
-        $reading->latitude = isset($p['latitude']) && is_numeric($p['latitude']) ? (float) $p['latitude'] : null;
-        $reading->longitude = isset($p['longitude']) && is_numeric($p['longitude']) ? (float) $p['longitude'] : null;
+        // --- données géographiques (font foi : reportées sur la station à l'import)
+        //     une valeur invalide est ignorée (la station garde la sienne), la mesure reste valide
+        $reading->latitude = $this->parseCoordinate($p, 'latitude', 90.0, $label, $reading);
+        $reading->longitude = $this->parseCoordinate($p, 'longitude', 180.0, $label, $reading);
+        $reading->altitude = $this->parseAltitude($p, $label, $reading);
 
         return $reading;
+    }
+
+    private function parseCoordinate(array $p, string $key, float $limit, string $label, NadamReading $reading): ?string
+    {
+        if (!isset($p[$key])) {
+            return null;
+        }
+
+        $raw = $p[$key];
+        if (\is_float($raw) || \is_int($raw)) {
+            $raw = rtrim(rtrim(sprintf('%.15F', $raw), '0'), '.');
+        }
+
+        if (!\is_string($raw) || 1 !== preg_match('/^-?\d{1,3}(\.\d{1,15})?$/', trim($raw)) || abs((float) $raw) > $limit) {
+            $reading->warnings[] = sprintf('%s : %s invalide « %s », ignorée', $label, $key, json_encode($p[$key]));
+
+            return null;
+        }
+
+        return trim($raw);
+    }
+
+    private function parseAltitude(array $p, string $label, NadamReading $reading): ?int
+    {
+        if (!isset($p['height_above_sea'])) {
+            return null;
+        }
+
+        $raw = $p['height_above_sea'];
+        if (\is_int($raw) || (\is_string($raw) && 1 === preg_match('/^-?\d{1,4}$/', trim($raw)))) {
+            $altitude = (int) $raw;
+            if ($altitude >= -500 && $altitude <= 5000) {
+                return $altitude;
+            }
+        }
+
+        $reading->warnings[] = sprintf('%s : height_above_sea invalide « %s », ignorée', $label, json_encode($raw));
+
+        return null;
     }
 
     private function parseDate(string $raw, string $label): string

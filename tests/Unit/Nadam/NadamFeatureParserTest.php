@@ -133,6 +133,37 @@ class NadamFeatureParserTest extends TestCase
         ];
     }
 
+    public function testGeographyIsParsed()
+    {
+        $r = $this->parser()->parse($this->feature());
+
+        $this->assertSame('47.572158', $r->latitude);
+        $this->assertSame('7.877861', $r->longitude);
+        $this->assertSame(344, $r->altitude);
+    }
+
+    public function testInvalidGeographyIsIgnoredButMeasureKept()
+    {
+        $r = $this->parser()->parse($this->feature([
+            'latitude' => '95.0',
+            'longitude' => 'abc',
+            'height_above_sea' => 'n/a',
+        ]));
+
+        $this->assertNull($r->latitude);
+        $this->assertNull($r->longitude);
+        $this->assertNull($r->altitude);
+        $this->assertSame('122.5', $r->value);
+        $this->assertCount(3, $r->warnings);
+    }
+
+    public function testMissingGeographyIsNull()
+    {
+        $r = $this->parser()->parse($this->feature(['height_above_sea' => null]));
+        $this->assertNull($r->altitude);
+        $this->assertSame([], $r->warnings);
+    }
+
     public function testFeatureWithoutPropertiesIsRejected()
     {
         $this->expectException(InvalidNadamFeature::class);

@@ -31,11 +31,14 @@ final class NadamReading
     /** @var string|null précipitations en mm ; null = absent (≠ « 0 ») */
     public $precipitation;
 
-    /** @var float|null */
+    /** @var string|null latitude WGS84, chaîne décimale telle que transmise */
     public $latitude;
 
-    /** @var float|null */
+    /** @var string|null longitude WGS84, chaîne décimale telle que transmise */
     public $longitude;
+
+    /** @var int|null altitude en mètres (height_above_sea) */
+    public $altitude;
 
     /** @var string[] anomalies non bloquantes */
     public $warnings = [];
